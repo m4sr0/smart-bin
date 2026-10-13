@@ -13,7 +13,7 @@
 
   <script>
     async function loadData() {
-      const url = 'https://api.thingspeak.com/channels/3533253/fields/1.json?api_key=KEZC7WAT72DBEZB9&results=2';
+      const url = 'https://api.thingspeak.com/channels/3533253/fields/1.json?results=2';
       const res = await fetch(url);
       const data = await res.json();
       document.getElementById('dist').textContent = data.field1 || '--';
