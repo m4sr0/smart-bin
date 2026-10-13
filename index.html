@@ -10,13 +10,22 @@
 <body>
   <h1>Smart Bin</h1>
   <p>Distance: <span id="dist">--</span> cm</p>
-
   <script>
     async function loadData() {
       const url = 'https://api.thingspeak.com/channels/3533253/fields/1.json?results=2';
-      const res = await fetch(url);
-      const data = await res.json();
-      document.getElementById('dist').textContent = data.field1 || '--';
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const latest = Array.isArray(data.feeds) && data.feeds.length
+          ? data.feeds[data.feeds.length - 1]
+          : null;
+        document.getElementById('dist').textContent =
+          latest && latest.field1 ? latest.field1 : '--';
+      } catch (err) {
+        console.error('Error loading data:', err);
+        document.getElementById('dist').textContent = '--';
+      }
     }
     loadData();
     setInterval(loadData, 15000);
