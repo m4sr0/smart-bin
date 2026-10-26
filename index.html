@@ -164,7 +164,7 @@ function applyState(fill) {
 
   if (newState === 'full') {
     bannerEl.className = 'full';
-    bannerEl.textContent = `⚠️ Bin is FULL (${fill}%) — please empty it.`;
+    bannerEl.textContent = `Bin is FULL (${fill}%) — please empty it.`;
     if (!notified) {
       playBeep();
       sendNotification('Smart Bin 1 is full!', `Fill level: ${fill}%. Please empty the bin.`);
@@ -172,11 +172,11 @@ function applyState(fill) {
     }
   } else if (newState === 'warn') {
     bannerEl.className = 'warn';
-    bannerEl.textContent = `🟡 Bin getting full (${fill}%) — plan to empty soon.`;
+    bannerEl.textContent = `Bin getting full (${fill}%) — plan to empty soon.`;
     notified = false;
   } else {
     bannerEl.className = 'normal';
-    bannerEl.textContent = `✅ Bin is OK (${fill}%).`;
+    bannerEl.textContent = `Bin is OK (${fill}%).`;
     notified = false;
   }
 }
