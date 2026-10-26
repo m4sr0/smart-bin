@@ -1,34 +1,231 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Smart Bin</title>
-  <style>
-    body { font-family: Arial; text-align: center; padding: 50px; }
-    h1 { color: #2c3e50; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Bin</title>
+<style>
+  body {
+    font-family: system-ui, Arial, sans-serif;
+    text-align: center;
+    padding: 40px 20px;
+    background: #f7f9fb;
+    color: #2c3e50;
+    margin: 0;
+  }
+  h1 { margin-top: 0; }
+
+  .card {
+    max-width: 520px;
+    margin: 0 auto;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    padding: 30px 25px;
+  }
+
+  .reading { font-size: 1.2em; margin: 20px 0; }
+  .reading .value { font-weight: bold; font-size: 1.8em; }
+
+  /* Fill bar */
+  .bar-wrap {
+    width: 100%;
+    height: 26px;
+    background: #e8edf2;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 15px 0 25px;
+  }
+  #bar {
+    height: 100%;
+    width: 0%;
+    background: #4caf50;
+    transition: width 0.6s ease, background 0.6s ease;
+  }
+
+  /* Status banner */
+  #banner {
+    display: none;
+    margin: 20px auto 0;
+    padding: 14px 20px;
+    border-radius: 8px;
+    font-size: 1.05em;
+    font-weight: 600;
+  }
+  #banner.full   { display: block; background: #ffe0e0; color: #b00020; border: 2px solid #b00020; }
+  #banner.warn   { display: block; background: #fff4d6; color: #8a6100; border: 2px solid #e0a300; }
+  #banner.normal { display: block; background: #e0ffe0; color: #1b5e20; border: 2px solid #1b5e20; }
+
+  #status { color: #888; font-size: 0.85em; margin-top: 20px; }
+
+  button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    font-size: 1em;
+    border: none;
+    border-radius: 6px;
+    background: #2c3e50;
+    color: white;
+    cursor: pointer;
+  }
+  button:disabled { background: #a0a8b0; cursor: default; }
+</style>
 </head>
 <body>
+<div class="card">
   <h1>Smart Bin 1</h1>
-  <p>Distance: <span id="dist">--</span> cm</p>
-  <script>
-    async function loadData() {
-      const url = 'https://api.thingspeak.com/channels/3533253/fields/1.json?results=2';
-      try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        const latest = Array.isArray(data.feeds) && data.feeds.length
-          ? data.feeds[data.feeds.length - 1]
-          : null;
-        document.getElementById('dist').textContent =
-          latest && latest.field1 ? latest.field1 : '--';
-      } catch (err) {
-        console.error('Error loading data:', err);
-        document.getElementById('dist').textContent = '--';
-      }
+
+  <div class="reading">
+    Fill: <span class="value" id="fill">--</span> %
+    <div style="font-size:0.75em;color:#888;margin-top:4px;">
+      Distance: <span id="dist">--</span> cm
+    </div>
+  </div>
+
+  <div class="bar-wrap"><div id="bar"></div></div>
+
+  <div id="banner"></div>
+
+  <button id="notifyBtn">Enable browser notifications</button>
+
+  <p id="status">Last updated: --</p>
+</div>
+
+<script>
+// ================== Config ==================
+const CHANNEL_ID = 3533253;
+const POLL_INTERVAL_MS = 15000;
+
+// Thresholds in percent — keep in sync with the Arduino
+const FULL_PCT = 90;   // >= this = full alert
+const WARN_PCT = 70;   // >= this = warning (optional)
+
+// ================== State ==================
+let lastState = null;    // 'normal' | 'warn' | 'full'
+let notified = false;    // have we already sent a browser notification for this full event?
+
+// ================== Elements ==================
+const fillEl   = document.getElementById('fill');
+const distEl   = document.getElementById('dist');
+const barEl    = document.getElementById('bar');
+const bannerEl = document.getElementById('banner');
+const statusEl = document.getElementById('status');
+const notifyBtn = document.getElementById('notifyBtn');
+
+// ================== Notifications ==================
+notifyBtn.addEventListener('click', async () => {
+  if (!('Notification' in window)) {
+    alert('This browser does not support notifications.');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') {
+    notifyBtn.textContent = 'Browser notifications enabled ✓';
+    notifyBtn.disabled = true;
+    new Notification('Smart Bin', {
+      body: 'You will be notified when the bin is full.'
+    });
+  } else {
+    notifyBtn.textContent = 'Notifications blocked by browser';
+  }
+});
+
+function sendNotification(title, body) {
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body });
+  }
+}
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.2;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) { /* ignore */ }
+}
+
+// ================== State machine ==================
+function applyState(fill) {
+  let newState;
+  if (fill >= FULL_PCT)      newState = 'full';
+  else if (fill >= WARN_PCT) newState = 'warn';
+  else                       newState = 'normal';
+
+  // Only react on transition, not every poll
+  if (newState === lastState) return;
+  lastState = newState;
+
+  if (newState === 'full') {
+    bannerEl.className = 'full';
+    bannerEl.textContent = `⚠️ Bin is FULL (${fill}%) — please empty it.`;
+    if (!notified) {
+      playBeep();
+      sendNotification('Smart Bin 1 is full!', `Fill level: ${fill}%. Please empty the bin.`);
+      notified = true;
     }
-    loadData();
-    setInterval(loadData, 15000);
-  </script>
+  } else if (newState === 'warn') {
+    bannerEl.className = 'warn';
+    bannerEl.textContent = `🟡 Bin getting full (${fill}%) — plan to empty soon.`;
+    notified = false;
+  } else {
+    bannerEl.className = 'normal';
+    bannerEl.textContent = `✅ Bin is OK (${fill}%).`;
+    notified = false;
+  }
+}
+
+// ================== Data loading ==================
+async function loadData() {
+  const url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?results=2`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    const feeds = data.feeds || [];
+    if (!feeds.length) return;
+
+    const latest = feeds[feeds.length - 1];
+
+    // field1 = distance (cm), field2 = fill (%)
+    const distance = latest.field1 != null ? Number(latest.field1) : null;
+    const fill     = latest.field2 != null ? Number(latest.field2) : null;
+
+    if (fill == null && distance == null) {
+      fillEl.textContent = '--';
+      distEl.textContent = '--';
+      return;
+    }
+
+    if (fill != null) {
+      fillEl.textContent = fill;
+      barEl.style.width = fill + '%';
+      // Color the bar by severity
+      if (fill >= FULL_PCT)      barEl.style.background = '#e53935';
+      else if (fill >= WARN_PCT) barEl.style.background = '#fbc02d';
+      else                       barEl.style.background = '#4caf50';
+      applyState(fill);
+    }
+
+    if (distance != null) distEl.textContent = distance;
+
+    statusEl.textContent = 'Last updated: ' +
+      new Date(latest.created_at).toLocaleString();
+  } catch (err) {
+    console.error('Error loading data:', err);
+    statusEl.textContent = 'Connection error — retrying…';
+  }
+}
+
+loadData();
+setInterval(loadData, POLL_INTERVAL_MS);
+</script>
 </body>
 </html>
