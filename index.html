@@ -201,7 +201,14 @@ async function loadData() {
       if (fill >= FULL_PCT)      barEl.style.background = '#e53935';
       else if (fill >= WARN_PCT) barEl.style.background = '#fbc02d';
       else                       barEl.style.background = '#4caf50';
-      applyState(fill);
+      
+      const maint = Number(latest.field3) === 1;
+      if (maint) {
+        bannerEl.className = 'warn';
+        bannerEl.textContent = 'Bin is in MAINTENANCE — service in progress.';
+      } else {
+        applyState(fill);
+      }
     }
 
     if (distance != null) distEl.textContent = distance;
